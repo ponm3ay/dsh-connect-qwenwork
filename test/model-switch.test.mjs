@@ -128,14 +128,13 @@ test('the panel reports and toggles model state', async (t) => {
   assert.ok(before.models.some((model) => model.id === 'qwork-auto'))
 
   const off = panel.setModel({ id: 'qwork-auto', enabled: false })
-  assert.equal(off.enabled, false)
-  assert.ok(off.models.find((model) => model.id === 'qwork-auto').enabled === false)
+  assert.equal(off.models.find((model) => model.id === 'qwork-auto').enabled, false)
 
   const after = await panel.status(new URL('http://127.0.0.1/status'))
   assert.equal(after.models.find((model) => model.id === 'qwork-auto').enabled, false)
 
   const on = panel.setModel({ id: 'qwork-auto', enabled: true })
-  assert.equal(on.enabled, true)
+  assert.equal(on.models.find((model) => model.id === 'qwork-auto').enabled, true)
 })
 
 test('the panel refuses to switch a model it does not know', (t) => {

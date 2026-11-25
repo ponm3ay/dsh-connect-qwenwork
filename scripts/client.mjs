@@ -27,10 +27,27 @@ const fixtures = {
     expiresInMs: 26 * 3600_000,
     balance: { balance: '剩余 12,480 积分', windows: [{ name: '办公积分', display: '12,480' }] },
     models: [
-      { id: 'qwork-auto', name: '千问办公 · 标准', enabled: true },
-      { id: 'qwen4-max', name: 'Qwen4-Max', enabled: true },
-      { id: 'glm-5.3', name: 'GLM-5.3', enabled: false },
+      {
+        id: 'qwork-auto', name: '千问办公 · 标准', enabled: true, reasoning: true,
+        contextWindow: 1000000, catalogContextWindow: 1000000, vision: true, catalogVision: true, effort: '',
+        overridden: { contextWindow: false, image: false, effort: false },
+      },
+      {
+        id: 'qwen4-max', name: 'Qwen4-Max', enabled: true, reasoning: true,
+        contextWindow: 500000, catalogContextWindow: 1000000, vision: true, catalogVision: true, effort: 'low',
+        overridden: { contextWindow: true, image: false, effort: true },
+      },
+      {
+        id: 'glm-5.3', name: 'GLM-5.3', enabled: false, reasoning: false,
+        contextWindow: 1000000, catalogContextWindow: 1000000, vision: false, catalogVision: false, effort: '',
+        overridden: { contextWindow: false, image: false, effort: false },
+      },
     ],
+    choices: {
+      contextWindows: [200000, 500000, 1000000, 2000000],
+      efforts: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+      defaultContextWindow: 1000000,
+    },
     modelsRefreshedAt: Date.now(),
     store: 'D:\\.dsh\\.qwenwork-auth.json',
     runtime: { available: true, version: '2.1.0', releaseVersion: '2.1.0-26111906' },
@@ -175,10 +192,45 @@ const seen = {}
   const modelsText = JSON.stringify(painted[1])
   const switches = (modelsText.match(/"type":"checkbox"/g) ?? []).length
   console.log('model switches:', switches)
-  if (switches !== 3) throw new Error('every model row must have a switch, got ' + switches)
+  // 3 rows: each has an enable switch and an image switch = 6 checkboxes.
+  if (switches !== 6) throw new Error('every model row must have an enable and an image switch, got ' + switches)
   if (!modelsText.includes('dsq-sw-track')) throw new Error('a switch must paint its track')
   if (!modelsText.includes('dsq-model-off')) throw new Error('a switched-off model must be marked')
   if (!modelsText.includes('glm-5.3')) throw new Error('a switched-off model must still be listed, so it can be turned back on')
+
+  // The three capability controls are all present.
+  const selects = (modelsText.match(/"type":"select"/g) ?? []).length
+  console.log('selects (context + effort):', selects)
+  // 2 reasoning models x (context + effort) + 1 non-reasoning x context = 5
+  if (selects !== 5) throw new Error('each reasoning model needs context + effort selects, got ' + selects)
+  if (!modelsText.includes('字段'.slice(0, 0) + '上下文')) throw new Error('the context field must be labelled')
+  if (!modelsText.includes('图片')) throw new Error('the image field must be labelled')
+  if (!modelsText.includes('思考强度')) throw new Error('the thinking field must be labelled')
+  // A model with an override says so and offers a reset.
+  if (!modelsText.includes('已改')) throw new Error('an overridden field must be marked')
+  if (!modelsText.includes('跟随目录')) throw new Error('an overridden field must offer a reset')
+  // A non-reasoning model gets no thinking picker at all. Walk the painted tree
+  // rather than a string slice, so a label elsewhere cannot mask the answer.
+  const walk = (node, out = []) => {
+    if (node === null || node === undefined || typeof node !== 'object') return out
+    out.push(node)
+    for (const child of node.children ?? []) walk(child, out)
+    return out
+  }
+  const nodes = walk(painted[1])
+  // An enabled row's class is exactly "dsq-model"; a disabled one adds a suffix.
+  const rows = nodes.filter((node) => /^dsq-model(\s|$)/.test(String(node.props?.className ?? '')))
+  if (rows.length === 0) throw new Error('the model rows must be painted')
+  /** The row whose id label reads exactly this model id. */
+  const rowFor = (id) => rows.find((row) => walk(row).some(
+    (node) => String(node.props?.className ?? '') === 'dsq-model-id' && node.children.includes(id),
+  ))
+  const glmNode = rowFor('glm-5.3')
+  if (glmNode === undefined) throw new Error('the non-reasoning model row must be painted')
+  if (JSON.stringify(glmNode).includes('思考强度')) throw new Error('a non-reasoning model must not offer a thinking level')
+  const autoNode = rowFor('qwork-auto')
+  if (autoNode === undefined) throw new Error('the reasoning model row must be painted')
+  if (!JSON.stringify(autoNode).includes('思考强度')) throw new Error('a reasoning model must offer a thinking level')
 }
 
 // ---- helpers ---------------------------------------------------------------
