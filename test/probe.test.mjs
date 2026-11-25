@@ -317,57 +317,82 @@ test('a cancelled probe run stops before the next model', async () => {
   assert.equal(results.length, 1)
 })
 
-// ---- the account button ----------------------------------------------------
+// ---- the connection button: read-only, costs nothing ----------------------
 
-test('the account probe asks about the credential, using one model', async () => {
-  const seen = []
+test('the connection probe reads the account endpoint, not a chat', async () => {
+  let seen
   const result = await probeAccount({
-    models: [model('first-model'), model('second-model')],
     credentials,
     runtime,
-    signer: stubSigner(seen),
-    fetchImpl: async () => streamOf('x'),
+    fetchImpl: async (url, init) => {
+      seen = { url: String(url), headers: init.headers }
+      return Response.json({ user: { id: '9', name: 'Probe', email: 'probe@example.invalid' }, plan: { name: '专业版' } })
+    },
   })
   assert.equal(result.ok, true)
-  assert.equal(result.model, 'first-model', 'the account probe uses the first model only')
-  assert.equal(seen.length, 1)
+  assert.equal(result.verdict, 'available')
+  // The read-only account endpoint, not the inference endpoint: this is what
+  // makes the connection test free.
+  assert.match(seen.url, /account-context/)
+  assert.ok(!seen.url.includes('agent_chat_generation'), 'the connection test must not send a chat')
+  assert.equal(seen.headers.Authorization, 'Bearer ' + credentials.access)
+  assert.equal(result.account.plan, '专业版')
 })
 
-test('an account with no models cannot be probed, and says so', async () => {
+test('the connection probe does not touch any model', async () => {
+  // It is handed no model list at all, and still answers: the subject is the
+  // credential, so a model would be irrelevant.
   const result = await probeAccount({
-    models: [],
     credentials,
     runtime,
-    signer: stubSigner(),
-    fetchImpl: async () => { throw new Error('must not be called') },
+    fetchImpl: async () => Response.json({ user: { id: '9' } }),
   })
-  assert.equal(result.ok, false)
-  assert.equal(result.verdict, 'unsupported')
-})
-
-test('an accepted-but-silent answer still proves the account works', async () => {
-  const result = await probeAccount({
-    models: [model('m')],
-    credentials,
-    runtime,
-    signer: stubSigner(),
-    fetchImpl: async () => new Response('', { status: 200 }),
-  })
-  assert.equal(result.verdict, 'empty')
-  // The credential authenticated and the gateway accepted the request.
   assert.equal(result.ok, true)
 })
 
-test('an expired credential makes the account probe fail with an auth verdict', async () => {
+test('an expired credential makes the connection probe fail with an auth verdict', async () => {
   const result = await probeAccount({
-    models: [model('m')],
     credentials,
     runtime,
-    signer: stubSigner(),
     fetchImpl: async () => new Response('{"error":{"message":"expired"}}', { status: 401 }),
   })
   assert.equal(result.ok, false)
   assert.equal(result.verdict, 'auth')
+})
+
+test('a connection probe with no credential says so without calling out', async () => {
+  let called = false
+  const result = await probeAccount({
+    credentials: { access: '' },
+    runtime,
+    fetchImpl: async () => { called = true; return Response.json({}) },
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.verdict, 'auth')
+  assert.equal(called, false)
+})
+
+test('a connection probe that never answers times out', async () => {
+  const result = await probeAccount({
+    credentials,
+    runtime,
+    timeoutMs: 60,
+    fetchImpl: (input, init) => new Promise((resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal.reason))
+    }),
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.verdict, 'timeout')
+})
+
+test('a connection probe treats an unparseable answer as a network problem', async () => {
+  const result = await probeAccount({
+    credentials,
+    runtime,
+    fetchImpl: async () => new Response('not json', { status: 200 }),
+  })
+  assert.equal(result.ok, false)
+  assert.equal(result.verdict, 'network')
 })
 
 // ---- the panel routes ------------------------------------------------------
@@ -460,15 +485,20 @@ test('the panel counts failures separately from successes', async (t) => {
   }
 })
 
-test('the panel account test reports the model it used', async (t) => {
+test('the panel connection test reads the account, not a model', async (t) => {
   const { store, modelState, catalog } = fixture(t)
   const panel = createPanel({ store, catalog, modelState, runtimeProvider: getRuntime, signer: stubSigner() })
   const original = globalThis.fetch
-  globalThis.fetch = async () => streamOf('x')
+  let calledUrl
+  globalThis.fetch = async (url) => {
+    calledUrl = String(url)
+    return Response.json({ user: { id: '42', email: 'probe@example.invalid' } })
+  }
   try {
     const result = await panel.testAccount()
     assert.equal(result.ok, true)
-    assert.equal(typeof result.model, 'string')
+    assert.match(calledUrl, /account-context/)
+    assert.ok(!calledUrl.includes('agent_chat_generation'))
   } finally {
     globalThis.fetch = original
   }

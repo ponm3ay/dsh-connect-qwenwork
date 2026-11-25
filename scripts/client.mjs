@@ -205,9 +205,11 @@ const seen = {}
   if (selects !== 5) throw new Error('each reasoning model needs context + effort selects, got ' + selects)
 
   // The two test buttons exist, and the cost is stated before they are clicked.
-  if (!modelsText.includes('测账号')) throw new Error('the account test button must exist')
+  if (!modelsText.includes('测连接')) throw new Error('the connection test button must exist')
   if (!modelsText.includes('测全部模型')) throw new Error('the test-all button must exist')
-  if (!modelsText.includes('消耗')) throw new Error('the panel must warn that testing spends credits')
+  // The copy must distinguish the free connection test from the paid probes.
+  if (!modelsText.includes('不消耗积分')) throw new Error('the panel must say the connection test is free')
+  if (!modelsText.includes('消耗')) throw new Error('the panel must warn that model probes spend credits')
   // Each model row offers its own probe.
   if (!modelsText.includes('dsq-model-foot')) throw new Error('each model row must carry its own test control')
   if (!modelsText.includes('dsq-testbar')) throw new Error('the test bar must be painted')
