@@ -203,6 +203,14 @@ const seen = {}
   console.log('selects (context + effort):', selects)
   // 2 reasoning models x (context + effort) + 1 non-reasoning x context = 5
   if (selects !== 5) throw new Error('each reasoning model needs context + effort selects, got ' + selects)
+
+  // The two test buttons exist, and the cost is stated before they are clicked.
+  if (!modelsText.includes('测账号')) throw new Error('the account test button must exist')
+  if (!modelsText.includes('测全部模型')) throw new Error('the test-all button must exist')
+  if (!modelsText.includes('消耗')) throw new Error('the panel must warn that testing spends credits')
+  // Each model row offers its own probe.
+  if (!modelsText.includes('dsq-model-foot')) throw new Error('each model row must carry its own test control')
+  if (!modelsText.includes('dsq-testbar')) throw new Error('the test bar must be painted')
   if (!modelsText.includes('字段'.slice(0, 0) + '上下文')) throw new Error('the context field must be labelled')
   if (!modelsText.includes('图片')) throw new Error('the image field must be labelled')
   if (!modelsText.includes('思考强度')) throw new Error('the thinking field must be labelled')
