@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "QwenWork (千问办公)",
+    "description": "Authorize your own QwenWork account in the browser and use its models from DSH. In-process loopback shim plus the bundled official signing component; no API key, no pasted code, no resident gateway.",
+    "detail": "docs/DETAIL.md"
+  }
+}

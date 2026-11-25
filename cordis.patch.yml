@@ -1,0 +1,6 @@
+# Register the QwenWork provider without changing the profile's default model.
+# The account is authorized from the plugin's settings card: one browser
+# authorization, no API key and no pasted code.
+- insert:
+    - id: dsh-connect-qwenwork
+      name: dsh-connect-qwenwork

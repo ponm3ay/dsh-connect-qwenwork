@@ -1,0 +1,76 @@
+# QwenWork（千问办公）接入
+
+把千问办公（QwenWork）接成 DSH 的模型供应商：用自己的千问办公账号在浏览器授权，然后在模型选择器里直接选模型。
+
+## 它做了什么
+
+- **浏览器授权，不需要 API Key。** 点登录会打开千问办公的账号选择页，授权完成后插件自动轮询拿 token，不用粘贴验证码。
+- **进程内回环反代。** 千问办公的推理请求需要 WASM 签名的头、桌面 App 的请求信封，和一个固定的目的地。插件在本机 `127.0.0.1` 起一个只认 OpenAI chat completions 的小服务，把 DSH 的请求改写成签名请求再转发。没有常驻 magpie、没有单独守护进程、没有要记住的端口。
+- **随附官方签名组件。** `.qwenwork-runtime/qoder-auth-wasm/qoder_auth_wasm_bg.wasm` 是千问办公 2.1.0 的官方组件，按 SHA-256 识别并自动使用对应版本，换机器或移动目录都不用重配。组件不属于本项目 MIT 许可范围，见 `THIRD_PARTY_NOTICES.md`。
+- **模型目录跟随账号。** 授权成功后读一次该账号的模型目录，之后可在设置页手动刷新；读不到就用内置快照，不会把模型选择器清空。
+
+## 登录
+
+1. 打开 **设置 → 千问办公**。
+2. 点 **登录**，浏览器会打开授权页；完成授权后回到 DSH 等它自动完成。
+3. 在新会话的模型选择器里选一个千问办公模型。
+
+凭据存在 `$DSH_HOME/.qwenwork-auth.json`（0600），浏览器那一半永远拿不到 token：它只问「登录了没」「开始登录」「登录落地了没」。退出登录在同一个面板。
+
+## 模型
+
+首次授权时读当前账号的目录。目录里出现什么由账号权限决定；内置快照是千问办公 2.1.0 的兜底表：
+
+| 显示名称 | 模型 ID |
+| --- | --- |
+| 千问办公 · 标准 | `qwork-auto` |
+| 千问办公 · 高级 | `qwork-advanced` |
+| Qwen4-Max | `qwen4-max` |
+| Qwen3.8-Max | `qwen3.8-max-preview` |
+| Qwen3.8-Flash | `qwen3.8-flash` |
+| Ling-3.1-Flash | `ling-3.1-flash` |
+| DeepSeek-V4.1-Flash | `deepseek-flash` |
+| DeepSeek-V4-Pro | `deepseek-v4-pro` |
+| GLM-5.3 | `glm-5.3` |
+| GLM-5.3-Flash | `glm-5.3-flash` |
+| Kimi-K3.1-Pro | `kimi-k3.1-pro` |
+| MiniMax-M3.1-Flash | `minimax-m3.1-flash` |
+| Step-5-Preview | `step-5-preview` |
+
+**标准和高级是千问办公的服务档位，不是 DSH 的思考强度。** 想用指定模型就直接选它的名字。
+
+### 思考开关
+
+千问办公只接受一个「是否推理」的开关。DSH 的思考等级在插件里被压成这个开关：选了任何等级（含 `low`）就是开，选 `off` 就是关。插件不会因为档位不同去换模型，也不保证不同等级对应不同推理强度。
+
+### 上下文与输出预算
+
+所有模型的上下文窗口按目录公布的 **1,000,000 tokens** 报给 DSH。输出上限优先用目录里的明确值，没填就按千问办公桌面版 2.1.0 的托管路径用 **32,768 tokens**，并且不会超过 131,072。这是单次请求预算，不保证网关真的允许生成这么多；推理和正文可能共享预算。
+
+## 配置
+
+默认自动加载插件目录内的签名组件，路径相对于插件位置解析，与启动目录无关。也会自动查找常见安装位置（含 Windows 的版本子目录）。要覆盖时，在插件根目录把 `.qwenwork.example.json` 复制成 `.qwenwork.local.json` 改 `appPath`，或在启动 DSH 前设环境变量：
+
+| 变量 | 用途 |
+| --- | --- |
+| `QWENWORK_APP_PATH` | 千问办公安装根目录或 `resources` 目录。 |
+| `QWENWORK_WASM_PATH` | 直接指定本机官方 App 随附的 `qoder_auth_wasm_bg.wasm`。 |
+| `QWENWORK_CLIENT_VERSION` | 覆盖组件来源版本。 |
+| `QWENWORK_RELEASE_VERSION` | 覆盖组件 release 版本。 |
+
+环境变量优先于本地配置。`.qwenwork.local.json` 不要提交到 Git。
+
+## 常见问题
+
+- **找不到签名组件：** 检查 `.qwenwork-runtime` 目录是否完整；自定义路径时按上面两张表检查。设置页的「签名组件」一行会显示实际加载到的版本，或缺失原因。
+- **授权已失效：** 在设置页重新点登录，不要手动配 API Key。
+- **模型列表没更新：** 点设置页的「刷新列表」。目录请求失败时会继续用缓存，没有缓存才用内置快照。
+- **DeepSeek-V4.1-Flash 到输出上限却没有正文或工具调用：** 通常是思考用尽了单次输出预算，不是上下文满了。在消息里指定第一个小步骤，或换个模型。插件不会自动重试或换模型。
+
+## 隐私与兼容性
+
+- 插件不把 DSH 会话同步到千问办公的聊天列表。发给模型的提示词、上下文、工具结果和图片仍由千问办公服务端处理；用组织账号前请确认组织的审计和数据处理政策。
+- 凭据只存在本机 `$DSH_HOME`，不出现在 profile 设置里，也不会发给浏览器那一半。
+- 插件不关闭 TLS 校验，也不对公网开监听端口。不支持海外站或企业 VPC；官方客户端或服务接口升级可能影响兼容性。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "QwenWork（千问办公）",
+    "description": "在浏览器里授权自己的千问办公账号，然后在 DSH 里直接使用它的模型。进程内回环反代加随附的官方签名组件，无需 API Key、无需粘贴验证码、无需常驻网关。",
+    "detail": "docs/DETAIL.md"
+  }
+}

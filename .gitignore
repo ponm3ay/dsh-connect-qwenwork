@@ -1,0 +1,4 @@
+node_modules/
+_smoke/
+*.log
+.qwenwork.local.json
