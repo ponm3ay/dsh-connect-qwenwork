@@ -1,7 +1,7 @@
 {
   "name": "dsh-connect-qwenwork",
   "displayName": "DSH Connect QwenWork",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "把千问办公（QwenWork）接入 DeepSeek Harness：浏览器授权自己的账号，进程内回环反代 + 官方 WASM 签名组件，无需 API Key、无需常驻 magpie。",
   "author": "ErkundenSie",
   "license": "MIT",
@@ -65,3 +65,4 @@
     "url": "git+https://github.com/ErkundenSie/dsh-connect-qwenwork.git"
   }
 }
+
