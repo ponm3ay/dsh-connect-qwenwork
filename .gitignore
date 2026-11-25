@@ -1,4 +1,15 @@
+# Files this repository does not track.
 node_modules/
 _smoke/
+_pkg/
 *.log
+
+# A machine's own override file. It points at a local install path, so it is
+# per-machine by nature and must never be committed.
 .qwenwork.local.json
+
+# Editor and OS noise.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -26,17 +26,21 @@
     "cordis.patch.yml",
     "README.md",
     "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     ".qwenwork-runtime/qoder-auth-wasm/qoder_auth_wasm_bg.wasm"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test --test-timeout=30000 \"test/*.test.mjs\"",
+    "client": "node scripts/client.mjs",
+    "manifest": "node scripts/validate-manifest.mjs",
+    "check": "npm run manifest && npm test && npm run client",
     "smoke": "node scripts/smoke.mjs",
     "capabilities": "node scripts/capabilities.mjs",
     "mount": "node scripts/mount.mjs",
-    "client": "node scripts/client.mjs",
-    "check": "node --check lib/index.js && node --check lib/client.js && node --test test/*.test.mjs && node scripts/client.mjs"
+    "runtime": "node scripts/extract-runtime.mjs ./.rt/node_modules"
   },
   "dsh": {
     "bundle": {
@@ -63,10 +67,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ErkundenSie/dsh-connect-qwenwork.git"
+    "url": "git+https://github.com/ponm3ay/dsh-connect-qwenwork.git"
+  },
+  "homepage": "https://github.com/ponm3ay/dsh-connect-qwenwork#readme",
+  "bugs": {
+    "url": "https://github.com/ponm3ay/dsh-connect-qwenwork/issues"
   }
 }
-
-
-
-

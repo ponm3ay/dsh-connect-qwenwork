@@ -1,0 +1,5 @@
+# Normalise line endings so a Windows checkout and a Linux one produce the same
+# diff. The WASM binary is the one file that must stay byte-exact.
+* text=auto eol=lf
+*.wasm binary
+*.png binary
