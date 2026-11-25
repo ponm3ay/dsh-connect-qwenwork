@@ -213,6 +213,51 @@ const seen = {}
   // Each model row offers its own probe.
   if (!modelsText.includes('dsq-model-foot')) throw new Error('each model row must carry its own test control')
   if (!modelsText.includes('dsq-testbar')) throw new Error('the test bar must be painted')
+
+  // A test result must be RENDERED, not just written into state. The first cut
+  // called setTestNote and never painted it, so clicking produced nothing.
+  {
+    let registered
+    const React = {
+      createElement(type, props, ...children) {
+        return { type, props: props ?? {}, children: children.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false) }
+      },
+      useState(initial) {
+        // slot 0 status, slot 5 login, slot 8 testNote (see the component's order)
+        renderSlot++
+        if (renderSlot === 1) return [fixtures.signedIn, () => {}]
+        if (renderSlot === 9) return [{ tone: 'ok', text: '连接正常：so***@example.com（210ms）' }, () => {}]
+        return [typeof initial === 'function' ? initial() : initial, () => {}]
+      },
+      useEffect() {},
+    }
+    let renderSlot = 0
+    const window = {
+      __ModuleLoader__: {
+        load({ factory }) {
+          const exported = factory((name) => {
+            if (name === 'react') return React
+            throw new Error('unexpected require: ' + name)
+          })
+          exported.apply({
+            slots: {
+              inject: (name, run) => run(),
+              register: (options, component) => { registered = { options, component } },
+            },
+          })
+        },
+      },
+    }
+    new Function('window', 'document', 'console', source)(window, { querySelector: () => null, createElement: () => ({ dataset: {}, textContent: '' }), head: { appendChild() {} } }, console)
+    const tree = registered.component()
+    const modelsCard = tree.children.slice(1).map(paint).find((node) => JSON.stringify(node).includes('dsq-testbar'))
+    if (modelsCard === undefined) throw new Error('the models card must be painted')
+    const paintedModels = JSON.stringify(modelsCard)
+    if (!paintedModels.includes('连接正常')) {
+      throw new Error('a test result must be rendered in the panel, not only stored in state')
+    }
+    console.log('test result is rendered: ok')
+  }
   if (!modelsText.includes('字段'.slice(0, 0) + '上下文')) throw new Error('the context field must be labelled')
   if (!modelsText.includes('图片')) throw new Error('the image field must be labelled')
   if (!modelsText.includes('思考强度')) throw new Error('the thinking field must be labelled')

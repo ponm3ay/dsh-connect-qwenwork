@@ -39,6 +39,11 @@ function streamOf(text) {
   return new Response(text, { status: 200, headers: { 'content-type': 'text/event-stream' } })
 }
 
+/** A stream that carries a real model delta, which is what "answered" means. */
+function answerStream(text = 'ok') {
+  return streamOf('data: {"body":"' + JSON.stringify({ choices: [{ delta: { content: text } }] }).replace(/"/g, '\\"') + '"}\n\n')
+}
+
 // ---- the request a probe sends ---------------------------------------------
 
 test('a probe body is minimal: one user turn, one token of room, no tools', () => {
@@ -66,7 +71,7 @@ test('a probe sends one signed request to the same destination a chat uses', asy
     credentials,
     runtime,
     signer: stubSigner(seen),
-    fetchImpl: async () => streamOf('data: {"body":"x"}\n\n'),
+    fetchImpl: async () => answerStream('ok'),
   })
   assert.equal(result.verdict, 'available')
   assert.equal(seen.length, 1, 'exactly one request')
@@ -76,8 +81,15 @@ test('a probe sends one signed request to the same destination a chat uses', asy
 
 // ---- one byte is the whole test --------------------------------------------
 
-test('a probe stops at the first byte instead of reading the answer', async () => {
-  let pulls = 0
+test('a probe keeps reading past the transport envelope until the model speaks', async () => {
+  // The live gateway sends `data:{"headers":…}` first, then the model's chunk.
+  // Stopping at the first byte would call every reachable model "available".
+  const frames = [
+    'data: {"headers":{"Content-Type":["application/json"]}}\n\n',
+    'data: {"body":"{\\"choices\\":[{\\"delta\\":{\\"content\\":\\"好\\"}}]}"}\n\n',
+    'data: {"body":"[DONE]"}\n\n',
+  ]
+  let index = 0
   const result = await probeModel({
     model: model('m'),
     credentials,
@@ -85,44 +97,50 @@ test('a probe stops at the first byte instead of reading the answer', async () =
     signer: stubSigner(),
     fetchImpl: async () => new Response(new ReadableStream({
       pull(controller) {
-        pulls++
-        // Every pull would produce more data if the probe kept reading.
-        controller.enqueue(new TextEncoder().encode('data: {"body":"' + pulls + '"}\n\n'))
+        if (index >= frames.length) return controller.close()
+        controller.enqueue(new TextEncoder().encode(frames[index++]))
       },
     }), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
   })
   assert.equal(result.verdict, 'available')
-  // The reader takes one chunk and cancels. A stream that refills itself may be
-  // pulled once more before cancellation lands, so the bound is small — what
-  // matters is that the probe did NOT drain a stream that never ends.
-  assert.ok(pulls <= 2, 'the probe must hang up after the first byte, not drain the stream')
+  assert.equal(result.sample, '好', 'the sample must be the model output, not the envelope')
 })
 
-test('a probe against a long answer reads only a fraction of it', async () => {
-  // A realistic stream: 200 frames, then DONE. A probe that waited for the end
-  // would read all of them; one that stops at the first byte reads almost none.
-  const encoder = new TextEncoder()
-  let sent = 0
-  const total = 200
+test('envelope-only traffic is "empty", never "available"', async () => {
   const result = await probeModel({
     model: model('m'),
     credentials,
     runtime,
     signer: stubSigner(),
+    fetchImpl: async () => new Response(
+      'data: {"headers":{"Content-Type":["application/json"]}}\n\ndata: {"body":"[DONE]"}\n\n',
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    ),
+  })
+  assert.equal(result.verdict, 'empty')
+  assert.equal(isNegative(result.verdict), false)
+})
+
+test('a probe that never speaks hangs up instead of looping forever', async () => {
+  // A stream that keeps sending envelope and never a content delta. Without a
+  // cap on bytes READ this loop would never end; the cap is what this asserts.
+  let sent = 0
+  const started = Date.now()
+  const result = await probeModel({
+    model: model('m'),
+    credentials,
+    runtime,
+    signer: stubSigner(),
+    timeoutMs: 5000,
     fetchImpl: async () => new Response(new ReadableStream({
       pull(controller) {
-        if (sent >= total) {
-          controller.enqueue(encoder.encode('data: {"body":"[DONE]"}\n\n'))
-          controller.close()
-          return
-        }
         sent++
-        controller.enqueue(encoder.encode('data: {"body":"{\\"choices\\":[{\\"delta\\":{\\"content\\":\\"字\\"}}]}"}\n\n'))
+        controller.enqueue(new TextEncoder().encode('data: {"headers":{"x":"' + 'y'.repeat(200) + '"}}\n\n'))
       },
     }), { status: 200, headers: { 'content-type': 'text/event-stream' } }),
   })
-  assert.equal(result.verdict, 'available')
-  assert.ok(sent < total / 2, 'the probe must not read a long answer to its end, read ' + sent + ' of ' + total)
+  assert.equal(result.verdict, 'empty')
+  assert.ok(Date.now() - started < 4000, 'the byte cap must end the read well before the timeout')
 })
 
 test('a probe keeps only a short printable sample for diagnostics', async () => {
@@ -131,7 +149,7 @@ test('a probe keeps only a short printable sample for diagnostics', async () => 
     credentials,
     runtime,
     signer: stubSigner(),
-    fetchImpl: async () => streamOf('data: ' + 'x'.repeat(5000)),
+    fetchImpl: async () => streamOf('data: {"body":"' + '{\\"choices\\":[{\\"delta\\":{\\"content\\":\\"' + 'x'.repeat(5000) + '\\"}}]}' + '"}\n\n'),
   })
   assert.equal(result.verdict, 'available')
   assert.ok(result.sample.length <= 60, 'the sample must stay short')
@@ -257,7 +275,7 @@ test('a probe reports how long it took', async () => {
     credentials,
     runtime,
     signer: stubSigner(),
-    fetchImpl: async () => streamOf('x'),
+    fetchImpl: async () => answerStream('ok'),
   })
   assert.equal(typeof result.ms, 'number')
   assert.ok(result.ms >= 0)
@@ -278,7 +296,7 @@ test('probing several models runs them one at a time, in order', async () => {
       maxConcurrent = Math.max(maxConcurrent, concurrent)
       await new Promise((resolve) => setTimeout(resolve, 5))
       concurrent--
-      return streamOf('x')
+      return answerStream('ok')
     },
   })
   assert.deepEqual(results.map((result) => result.id), ['a', 'b', 'c'])
@@ -292,7 +310,7 @@ test('probing several reports progress as each lands', async () => {
     credentials,
     runtime,
     signer: stubSigner(),
-    fetchImpl: async () => streamOf('x'),
+    fetchImpl: async () => answerStream('ok'),
     onResult: (result, done, total) => progress.push([result.id, done, total]),
   })
   assert.deepEqual(progress, [['a', 1, 2], ['b', 2, 2]])
@@ -310,7 +328,7 @@ test('a cancelled probe run stops before the next model', async () => {
     fetchImpl: async () => {
       calls++
       controller.abort()
-      return streamOf('x')
+      return answerStream('ok')
     },
   })
   assert.equal(calls, 1, 'cancelling must not start the next probe')
@@ -427,7 +445,7 @@ test('the panel tests one named model', async (t) => {
     store, catalog, modelState, runtimeProvider: getRuntime, signer: stubSigner(),
   })
   const original = globalThis.fetch
-  globalThis.fetch = async () => streamOf('x')
+  globalThis.fetch = async () => answerStream('ok')
   try {
     const result = await panel.testModels({ id: 'deepseek-flash' })
     assert.equal(result.results.length, 1)
@@ -444,7 +462,7 @@ test('the panel tests every enabled model and skips the switched-off ones', asyn
   modelState.set('kimi-k3.1-pro', false)
   const panel = createPanel({ store, catalog, modelState, runtimeProvider: getRuntime, signer: stubSigner() })
   const original = globalThis.fetch
-  globalThis.fetch = async () => streamOf('x')
+  globalThis.fetch = async () => answerStream('ok')
   try {
     const enabled = catalog.listResolved().length
     const result = await panel.testModels({})
@@ -472,7 +490,7 @@ test('the panel counts failures separately from successes', async (t) => {
   let call = 0
   globalThis.fetch = async () => {
     call++
-    if (call === 1) return streamOf('x')
+    if (call === 1) return answerStream('ok')
     return new Response('{"error":{"message":"不支持"}}', { status: 400 })
   }
   try {
